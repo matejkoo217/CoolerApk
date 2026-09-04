@@ -203,7 +203,7 @@ def rewrite_links_in_html(html,base_url=''):
 def translate_relative_time(raw_text):
     E='mo ago';D='m ago';C=raw_text;B='w ago'
     if not C:return _j
-    A=str(C).strip();F=[('刚刚',_j),('昨天','Yesterday'),('前天','2 days ago'),('秒前','s ago'),('分钟前',D),('分前',D),('小时前','h ago'),('个星期前',B),('星期前',B),('周前',B),('天前','d ago'),('个月前',E),('月前',E),('年前','y ago')]
+    A=str(C).strip();F=[('刚刚',_j),('昨天','Yesterday'),('前天','2d ago'),('秒前','s ago'),('分钟前',D),('分前',D),('小时前','h ago'),('个星期前',B),('星期前',B),('周前',B),('天前','d ago'),('个月前',E),('月前',E),('年前','y ago')]
     for(G,H)in F:A=A.replace(G,H)
     return A
 def format_stat_number(val,unit=''):
@@ -369,7 +369,18 @@ def clean_coolapk_text(text):
         try:B=urllib.parse.unquote(A).strip('# ')
         except Exception:B=A.strip('# ')
         return f"#{B}#"
-    A=re.sub('<a[^>]*class=["\\x27]feed-link-tag["\\x27][^>]*href=["\\x27][^"\\x27]*["\\x27][^>]*>#?([^<#]+)#?</a>',B,A,flags=re.I);A=re.sub('<(?!/?a\\b)[^>]+>','',A);return A.strip()
+    A=re.sub('<a[^>]*class=["\\x27]feed-link-tag["\\x27][^>]*href=["\\x27][^"\\x27]*["\\x27][^>]*>#?([^<#]+)#?</a>',B,A,flags=re.I)
+    def C(m):
+        u=m.group(1)or'';o=m.group(2)or u
+        try:o=urllib.parse.unquote(o).strip('@ ')
+        except Exception:o=o.strip('@ ')
+        return f"@{o}"
+    A=re.sub('<a[^>]*class=["\\x27]feed-link-uname["\\x27][^>]*href=["\\x27][^"\\x27]*\\/u\\/([^"\\x27\\?]+)[^"\\x27]*["\\x27][^>]*>@?([^<]+)</a>',C,A,flags=re.I)
+    def D(m):
+        u=m.group(1)or'';t=m.group(2)or u
+        return f"{t} ({u})" if t!=u else u
+    A=re.sub('<a[^>]*href=["\\x27]([^"\\x27]+)["\\x27][^>]*>(.*?)</a>',D,A,flags=re.I)
+    A=re.sub('<(?!/?a\\b)[^>]+>','',A);return A.strip()
 def normalize_api_feed(item):
     A=item;I=str(A.get(_A)or'');O=A.get(_O)or _R;P=make_proxy_url(A.get(_d)or'');Q=format_timestamp(A.get(_n)or 0);B=A.get(_AP,'')
     if B:R=B.replace('来自 ','').strip();B=f"from {R}"
