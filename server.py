@@ -23,7 +23,6 @@ _Af='username-item'
 _Ae='html.parser'
 _Ad='connection'
 _Ac='image.coolapk.com'
-_Ab='127.0.0.1'
 _Aa='/api/'
 _AZ='static'
 _AY='/emojis/'
@@ -139,7 +138,7 @@ class _PooledClientSession:
     def put(A,url,**B):return A.request('PUT',url,**B)
     def delete(A,url,**B):return A.request('DELETE',url,**B)
 ClientSession=_PooledClientSession
-ROUTER_HOST=_Ab
+ROUTER_HOST = os.environ.get('ROUTER_HOST', os.environ.get('HOST', '127.0.0.1'))
 ROUTER_PORT=int(os.environ.get('ROUTER_PORT',os.environ.get('PORT',8123)))
 TARGET_BASE='https://coolapk.com'
 DEFAULT_MODE='direct'
@@ -158,7 +157,7 @@ def bypass_china_lock(url_str):
     if not B:return B
     D=urllib.parse.urlparse(B);C=D.hostname
     if not C:return B
-    if C in(_Ab,'localhost'):return B
+    if C in(ROUTER_HOST,'localhost'):return B
     if not is_china_domain(C):return B
     A=C
     if A.startswith('m.'):A=A[2:]
