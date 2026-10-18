@@ -460,10 +460,10 @@ async def fetch_feed_replies(url,feed_id):
     """
     global _REPLY_REASON
     F=get_reply_auth();G=get_global_session();_REPLY_REASON=''
-    for H in ('v3','v2'):
+    for H in ('vm','v3','v2'):
         try:
-            I=get_server_api_headers() if H=='v3' else get_v2_token_headers()
-            if H=='v3'and F.get('device'):
+            I=get_legacy_modern_headers() if H=='vm' else (get_server_api_headers() if H=='v3' else get_v2_token_headers())
+            if H in('v3','vm')and F.get('device'):
                 I=dict(I);I['X-App-Device']=str(F['device']);I['X-App-Token']=get_coolapk_token(F['device'])
             J=_reply_url(url,F)
             async with G.get(J,headers=I)as K:
@@ -504,6 +504,61 @@ async def fetch_feed_replies(url,feed_id):
         log.warning('hotReplyList fallback failed for %s: %s',feed_id,Q)
     log.info('reply fetch exhausted for %s: %s',feed_id,_REPLY_REASON[:120])
     return _ReplyShim(403,b'{"data":[]}')
+
+
+# ---- modern version identity for the reply endpoint (added 2026-10-18) ------
+# Coolapk's v6 version whitelist wants these; X-App-Supported is NOT the version code.
+MODERN_VERSION = "16.6.4"
+MODERN_CODE = "2609291"
+MODERN_API = "16"
+MODERN_SUPPORTED = "2310232"
+MODERN_UA = ("Dalvik/2.1.0 (Linux; U; Android 15; 22081212C Build/AQ3A.250226.002) "
+             "(#Build; Redmi; 22081212C; AQ3A.250226.002; HyperOS_3.0; 3.0.1.0) "
+             "+CoolMarket/16.6.4-2609291-universal")
+DEVICE_CODE_FILE = os.path.join(os.path.dirname(__file__), '.device_code')
+_device_code_memo = {'code': ''}
+
+
+def get_device_code():
+    """Per-install guest device code. Reused on purpose: Coolapk raises the risk score when a
+    device stops looking like one device, and a SHARED fingerprint (what the old reader used)
+    is what gets targeted."""
+    if _device_code_memo['code']:
+        return _device_code_memo['code']
+    try:
+        if os.path.exists(DEVICE_CODE_FILE):
+            with open(DEVICE_CODE_FILE, 'r', encoding='utf-8') as F:
+                C = F.read().strip()
+                if C:
+                    _device_code_memo['code'] = C
+                    return C
+    except Exception as E:
+        log.warning('device code read failed: %s', E)
+    A = hashlib.md5(os.urandom(16)).hexdigest()[:16]
+    C = base64.b64encode(f"{A}; ; ; ; Xiaomi; Xiaomi; 22081212C; AQ3A.250226.002; ".encode()).decode()[::-1].replace('=', '')
+    try:
+        with open(DEVICE_CODE_FILE, 'w', encoding='utf-8') as F:
+            F.write(C)
+    except Exception as E:
+        log.warning('device code persist failed: %s', E)
+    _device_code_memo['code'] = C
+    return C
+
+
+def get_legacy_modern_headers():
+    """Legacy md5 (V2) token - which Coolapk still accepts - carried under the MODERN version
+    identity, so the request clears the version whitelist. Mirrors what CoolapkReviver does
+    to a real old client."""
+    D = get_device_code()
+    B = int(time.time())
+    E = f"token://com.coolapk.market/c67ef5943784d09750dcfbb31020f0ab?{hashlib.md5(str(B).encode()).hexdigest()}${D}&com.coolapk.market"
+    G = hashlib.md5(base64.b64encode(E.encode())).hexdigest() + D + '0x' + hex(B)[2:]
+    return {'User-Agent': MODERN_UA, 'X-Requested-With': 'XMLHttpRequest', 'X-App-Id': _AJ,
+            'X-App-Token': G, 'X-Sdk-Int': '35', 'X-Sdk-Locale': 'zh-CN',
+            'X-App-Version': MODERN_VERSION, 'X-App-Code': MODERN_CODE, 'X-Api-Version': MODERN_API,
+            'X-App-Supported': MODERN_SUPPORTED, 'X-App-Device': D, 'X-App-Mode': 'universal',
+            'X-App-Channel': 'coolapk', 'X-Dark-Mode': '0',
+            'Accept-Encoding': 'gzip', 'Connection': 'Keep-Alive'}
 
 
 async def fetch_coolapk_feed_full(feed_id):
