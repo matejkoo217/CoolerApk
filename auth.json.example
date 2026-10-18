@@ -1,12 +1,31 @@
 {
   "_readme": [
     "Optional Coolapk credentials for the reply/comment fetch. Copy to auth.json (NOT tracked by git).",
-    "device       - replaces the shared default device fingerprint (fixes the -415 'too many accounts on this device' flag).",
-    "login_token  - account token from a logged-in Coolapk session; sent as ?token= (plus uid) on reply requests.",
-    "uid          - account uid that goes with login_token.",
+    "",
+    "ANDROID (guest) knobs - may still hit Coolapk's NetEase NIS captcha on the reply list:",
+    "  device       - replaces the built-in per-install device fingerprint.",
+    "  login_token  - account token from a logged-in Coolapk session; sent as ?token= (plus uid).",
+    "  uid          - account uid that goes with login_token.",
+    "",
+    "iOS PASSTHROUGH - the only profile known to pass the captcha guarding the reply list",
+    "(confirmed by Yorushika-fan/coolapk-web and the stack behind coolapk1s.com).",
+    "Capture once from the official Coolapk iOS app with Charles/mitmproxy: open a post, find the",
+    "request to /v6/feed/detail, copy its headers. Used for replies only, tried first.",
+    "  ios_token    - X-App-Token from that request",
+    "  ios_device   - X-App-Device from that request",
+    "  ios_cookie   - the full Cookie header (optional but recommended)",
+    "  ios_ua       - optional User-Agent override",
+    "  ios_upstream - optional, default https://api.coolapk.com",
+    "Refresh when comments start failing again - that token is short-lived.",
+    "",
     "Any key may be omitted; the file is re-read at most once a minute, no restart needed."
   ],
   "device": "",
   "login_token": "",
-  "uid": ""
+  "uid": "",
+  "ios_token": "",
+  "ios_device": "",
+  "ios_cookie": "",
+  "ios_ua": "",
+  "ios_upstream": ""
 }

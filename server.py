@@ -452,6 +452,41 @@ class _ReplyShim:
     async def read(self):return self._body
 
 
+# ---- optional iOS passthrough (added 2026-10-18) ---------------------------
+# auth.json may carry a captured real-iOS identity; without it this profile is skipped.
+#   {"ios_token": "...", "ios_device": "...", "ios_cookie": "...",
+#    "ios_ua": "...", "ios_upstream": "https://api.coolapk.com"}
+IOS_UA_DEFAULT = ("Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 "
+                  "(KHTML, like Gecko) Mobile/15E148 (#Build; Apple; iPhone18,3; iPhone 17; "
+                  "iOS_26.3.1) +iCoolMarket/16.1-2603231")
+
+
+def ios_profile_ready():
+    A = get_reply_auth()
+    return bool(str(A.get('ios_token') or '').strip() and str(A.get('ios_device') or '').strip())
+
+
+def get_ios_headers():
+    A = get_reply_auth()
+    H = {'User-Agent': str(A.get('ios_ua') or IOS_UA_DEFAULT),
+         'X-Requested-With': 'XMLHttpRequest', 'X-App-Id': 'com.coolapk.app',
+         'X-App-Token': str(A.get('ios_token') or ''), 'X-App-Device': str(A.get('ios_device') or ''),
+         'X-App-Version': str(A.get('ios_version') or '16.1'), 'X-App-Code': str(A.get('ios_code') or '2603231'),
+         'X-Sdk-Int': str(A.get('ios_sdk_int') or '26.3.1'), 'X-Sdk-Locale': 'zh-CN',
+         'Accept-Encoding': 'gzip', 'Connection': 'Keep-Alive'}
+    C = str(A.get('ios_cookie') or '').strip()
+    if C:
+        H['Cookie'] = C
+    return H
+
+
+def ios_upstream(url):
+    """Point a v6 call at the iOS host when one is configured."""
+    A = get_reply_auth()
+    B = str(A.get('ios_upstream') or 'https://api.coolapk.com').rstrip('/')
+    return url.replace('https://api.coolapk.com', B).replace('https://api2.coolapk.com', B)
+
+
 async def fetch_feed_replies(url,feed_id):
     """v3 (modern signature, honours auth.json) first, legacy v2 second.
 
@@ -460,12 +495,16 @@ async def fetch_feed_replies(url,feed_id):
     """
     global _REPLY_REASON
     F=get_reply_auth();G=get_global_session();_REPLY_REASON=''
-    for H in ('vm','v3','v2'):
+    for H in ('ios','vm','v3','v2'):
         try:
-            I=get_legacy_modern_headers() if H=='vm' else (get_server_api_headers() if H=='v3' else get_v2_token_headers())
-            if H in('v3','vm')and F.get('device'):
-                I=dict(I);I['X-App-Device']=str(F['device']);I['X-App-Token']=get_coolapk_token(F['device'])
-            J=_reply_url(url,F)
+            if H=='ios':
+                if not ios_profile_ready():continue
+                I=get_ios_headers();J=ios_upstream(url)
+            else:
+                I=get_legacy_modern_headers() if H=='vm' else (get_server_api_headers() if H=='v3' else get_v2_token_headers())
+                if H in('v3','vm')and F.get('device'):
+                    I=dict(I);I['X-App-Device']=str(F['device']);I['X-App-Token']=get_coolapk_token(F['device'])
+                J=_reply_url(url,F)
             async with G.get(J,headers=I)as K:
                 L=await K.read()
                 try:L=gzip.decompress(L)
