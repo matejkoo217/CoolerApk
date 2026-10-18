@@ -484,6 +484,24 @@ async def fetch_feed_replies(url,feed_id):
         except Exception as Q:
             _REPLY_REASON=str(Q)[:200]
             log.warning('reply fetch (%s) failed for %s: %s',H,feed_id,Q)
+    # 3rd source: the hot-reply endpoint is still served anonymously
+    try:
+        I=get_v2_token_headers()
+        J=f"https://api.coolapk.com/v6/feed/hotReplyList?id={feed_id}&page=1&discussMode=1"
+        async with G.get(J,headers=I)as K:
+            L=await K.read()
+            try:L=gzip.decompress(L)
+            except Exception:pass
+            M=L.decode(_S,_e)
+            try:N=json.loads(M)
+            except Exception:N={}
+            O=N.get(_D)
+            if isinstance(O,list)and O:
+                log.info('reply fallback: hotReplyList served %d row(s) for %s',len(O),feed_id)
+                return _ReplyShim(200,M.encode(_S))
+            if not _REPLY_REASON:_REPLY_REASON='hot-reply fallback empty (%s)'%(N.get(_E)or N.get('messageStatus')or K.status)
+    except Exception as Q:
+        log.warning('hotReplyList fallback failed for %s: %s',feed_id,Q)
     log.info('reply fetch exhausted for %s: %s',feed_id,_REPLY_REASON[:120])
     return _ReplyShim(403,b'{"data":[]}')
 
@@ -567,7 +585,17 @@ async def fetch_coolapk_feed_full(feed_id):
         if P and P in v:continue
         if P:v.add(P)
         w.append(x)
-    y={_A:str(B.get(_A)or D),_K:str(B.get(_K)or''),_P:A6,_I:A7,_V:A9,_U:L,_G:AB,_x:C,_A3:AC,_A5:K,_r:t,_AI:u,_L:str(B.get(_y,0)),_s:str(B.get('replynum',0)),_A4:str(B.get('favnum',0)),_Az:g,_o:w,'comments_error':_REPLY_REASON};set_cached_feed(D,y);return y
+    if not l:
+        # detail ships topReplyRows/hotReplyRows even when replyList is gated
+        _detail_rows=[x for x in ((B.get('topReplyRows')or[])+(B.get('hotReplyRows')or[])) if isinstance(x,dict)]
+        for A in _detail_rows:
+            V=A.get(_O,'酷友');H=A.get(_E,'');W=make_proxy_url(A.get(_d)or'');X=A.get(Q)or format_timestamp(A.get(_n)or 0)
+            Y=A.get(_y,0);I=A.get(_AP,'')
+            if I and not I.startswith('来自'):I=f"来自 {I}"
+            J=U(A);Z=k(A.get(_AR,[]))
+            if H or J:l.append({_A:A.get(_A),_K:str(A.get(_K)or''),_P:V,_I:W,_E:H,_V:translate_relative_time(X),_L:Y,_U:I,h:J,z:Z})
+        if l:log.info('comments for %s served from detail reply rows (%d)',D,len(l))
+    y={_A:str(B.get(_A)or D),_K:str(B.get(_K)or''),_P:A6,_I:A7,_V:A9,_U:L,_G:AB,_x:C,_A3:AC,_A5:K,_r:t,_AI:u,_L:str(B.get(_y,0)),_s:str(B.get('replynum',0)),_A4:str(B.get('favnum',0)),_Az:g,_o:w,'comments_error':(_REPLY_REASON if not l else '')};set_cached_feed(D,y);return y
 async def fetch_coolapk_topic_feeds(tag_id_or_name,tag_title=_B,page=1,subtab='all'):
     J='featured';I='hot';F=subtab;C=page;K=get_server_api_headers();A=re.sub(_z,'',str(tag_id_or_name).replace(_f,'').strip(),flags=re.I).strip()
     if A.isdigit()and A in _topic_id_to_name:A=_topic_id_to_name[A]
