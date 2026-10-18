@@ -307,10 +307,10 @@ def _find_blob(libauth_bytes):
 def _shift_last_char_minus_5(s):A=STD_B64.index(s[-1]);return s[:-1]+STD_B64[(A-5)%64]
 _cached_token=_B
 _cached_token_ts=0
-def get_coolapk_token():
+def get_coolapk_token(_device=None):
     B=b'&';A='ascii';global _cached_token,_cached_token_ts;C=int(time.time())
     if _cached_token and C-_cached_token_ts<45:return _cached_token
-    H=os.path.join(os.path.dirname(__file__),'libauth.so');I=_An;E=2608212;J=_AJ
+    H=os.path.join(os.path.dirname(__file__),'libauth.so');I=_device or _An;E=2608212;J=_AJ
     try:
         with open(H,'rb')as K:L=K.read()
         M=_find_blob(L);N=base64.b64decode(M);O=bytes(A^90 for A in N)
@@ -409,10 +409,89 @@ def get_cached_feed(feed_id):
         B,C=A
         if time.time()-B<300:return C
 def set_cached_feed(feed_id,data):_feed_detail_cache[str(feed_id)]=time.time(),data
+# ---- comment fetch (added 2026-10-18) --------------------------------------
+_REPLY_REASON=''
+AUTH_FILE=os.path.join(os.path.dirname(__file__),'auth.json')
+_auth_memo={'ts':0,'data':{}}
+
+
+def get_reply_auth():
+    """Optional Coolapk credentials for the reply endpoint.
+
+    auth.json (next to server.py, untracked so `git reset --hard` keeps it):
+        {"device": "<fingerprint>",       # optional: replaces the shared _An device
+         "login_token": "<account token>",# optional: sent as ?token= (+ uid)
+         "uid": "<uid>"}                  # optional: sent as ?uid=
+    Comments on Coolapk are gated (shared-device flag -415 / captcha); a real
+    logged-in token is the only path that reliably returns them.
+    """
+    A=int(time.time())
+    if _auth_memo['data'] and A-_auth_memo['ts']<60:return _auth_memo['data']
+    B={}
+    try:
+        if os.path.exists(AUTH_FILE):
+            with open(AUTH_FILE,'r',encoding='utf-8') as C:D=json.load(C)
+            if isinstance(D,dict):B=D
+    except Exception as E:log.warning('auth.json unreadable: %s',E)
+    _auth_memo.update({'ts':A,'data':B})
+    return B
+
+
+def _reply_url(url,auth):
+    C=str(auth.get('login_token')or'').strip()
+    if not C:return url
+    D=url+('&' if '?' in url else '?')+'token='+urllib.parse.quote(C)
+    E=str(auth.get('uid')or'').strip()
+    if E:D+='&uid='+urllib.parse.quote(E)
+    return D
+
+
+class _ReplyShim:
+    """Response-like wrapper so the existing reply parser stays untouched."""
+    def __init__(self,status,body):self.status=status;self._body=body
+    async def read(self):return self._body
+
+
+async def fetch_feed_replies(url,feed_id):
+    """v3 (modern signature, honours auth.json) first, legacy v2 second.
+
+    Sets the module global _REPLY_REASON so callers can tell the user WHY the
+    comment list is empty instead of silently returning none.
+    """
+    global _REPLY_REASON
+    F=get_reply_auth();G=get_global_session();_REPLY_REASON=''
+    for H in ('v3','v2'):
+        try:
+            I=get_server_api_headers() if H=='v3' else get_v2_token_headers()
+            if H=='v3'and F.get('device'):
+                I=dict(I);I['X-App-Device']=str(F['device']);I['X-App-Token']=get_coolapk_token(F['device'])
+            J=_reply_url(url,F)
+            async with G.get(J,headers=I)as K:
+                L=await K.read()
+                try:L=gzip.decompress(L)
+                except Exception:pass
+                M=L.decode(_S,_e)
+                try:N=json.loads(M)
+                except Exception:N={}
+                O=N.get(_D)
+                if K.status==200 and isinstance(O,list)and O:
+                    return _ReplyShim(200,M.encode(_S))
+                P=str(N.get(_E)or N.get('messageStatus')or'')
+                if not P:
+                    P='HTTP %s with no reply data'%K.status
+                if not _REPLY_REASON:_REPLY_REASON=P[:300]
+                if H=='v3':log.info('reply v3 refused for %s: %s',feed_id,P[:120])
+        except Exception as Q:
+            _REPLY_REASON=str(Q)[:200]
+            log.warning('reply fetch (%s) failed for %s: %s',H,feed_id,Q)
+    log.info('reply fetch exhausted for %s: %s',feed_id,_REPLY_REASON[:120])
+    return _ReplyShim(403,b'{"data":[]}')
+
+
 async def fetch_coolapk_feed_full(feed_id):
     z='reply_rows';h='pics';Q='dateline_text';D=feed_id;i=get_cached_feed(D)
     if i:return i
-    j=get_global_session();A0=get_v2_token_headers();A1=get_v2_token_headers();A2=f"https://api.coolapk.com/v6/feed/detail?id={D}";A3=f"https://api.coolapk.com/v6/feed/replyList?id={D}&discussMode=1&page=1";A4=j.get(A2,headers=A0);A5=j.get(A3,headers=A1)
+    j=get_global_session();A0=get_v2_token_headers();A2=f"https://api.coolapk.com/v6/feed/detail?id={D}";A3=f"https://api.coolapk.com/v6/feed/replyList?id={D}&discussMode=1&page=1";A4=j.get(A2,headers=A0);A5=fetch_feed_replies(A3,D)
     try:R,S=await asyncio.gather(A4,A5,return_exceptions=_C)
     except Exception as G:log.error('Failed to gather feed data for %s: %s',D,G);return
     B={}
@@ -488,7 +567,7 @@ async def fetch_coolapk_feed_full(feed_id):
         if P and P in v:continue
         if P:v.add(P)
         w.append(x)
-    y={_A:str(B.get(_A)or D),_K:str(B.get(_K)or''),_P:A6,_I:A7,_V:A9,_U:L,_G:AB,_x:C,_A3:AC,_A5:K,_r:t,_AI:u,_L:str(B.get(_y,0)),_s:str(B.get('replynum',0)),_A4:str(B.get('favnum',0)),_Az:g,_o:w};set_cached_feed(D,y);return y
+    y={_A:str(B.get(_A)or D),_K:str(B.get(_K)or''),_P:A6,_I:A7,_V:A9,_U:L,_G:AB,_x:C,_A3:AC,_A5:K,_r:t,_AI:u,_L:str(B.get(_y,0)),_s:str(B.get('replynum',0)),_A4:str(B.get('favnum',0)),_Az:g,_o:w,'comments_error':_REPLY_REASON};set_cached_feed(D,y);return y
 async def fetch_coolapk_topic_feeds(tag_id_or_name,tag_title=_B,page=1,subtab='all'):
     J='featured';I='hot';F=subtab;C=page;K=get_server_api_headers();A=re.sub(_z,'',str(tag_id_or_name).replace(_f,'').strip(),flags=re.I).strip()
     if A.isdigit()and A in _topic_id_to_name:A=_topic_id_to_name[A]
